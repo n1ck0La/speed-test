@@ -333,6 +333,10 @@ def create_app() -> FastAPI:
         }
         return render_template(request, "dashboard.html", context)
 
+    @app.get("/speedtest/configure")
+    async def speedtest_config_redirect():
+        return RedirectResponse("/speedtest", status_code=303)
+
     @app.get("/ping")
     async def ping_config_page(request: Request):
         settings = settings_store.load()

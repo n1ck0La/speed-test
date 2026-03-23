@@ -201,7 +201,7 @@
         </div>
         {% if page == 'monitor_speedtest' %}
         <div class="monitor-actions" style="margin-top: 12px;">
-          <form action="/speedtest/configure" method="get" style="display: inline;">
+          <form action="/speedtest" method="get" style="display: inline;">
             <button type="submit" class="ghost">Edit Configuration</button>
           </form>
           <form action="/speedtest/configure" method="post" style="display: inline; margin-left: 8px;" onsubmit="return confirm('Disable speedtest?');">
