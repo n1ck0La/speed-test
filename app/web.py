@@ -278,6 +278,13 @@ def create_app() -> FastAPI:
     templates.env.filters["mbps"] = mbps
     templates.env.filters["ms"] = ms
 
+    def render_template(request: Request, name: str, context: dict[str, Any]):
+        context = {**context, "request": request}
+        try:
+            return templates.TemplateResponse(request=request, name=name, context=context)
+        except TypeError:
+            return templates.TemplateResponse(name, context)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         db.initialize()
@@ -324,7 +331,7 @@ def create_app() -> FastAPI:
                 (datetime.now().astimezone() - timedelta(days=settings.retention_days)).isoformat()
             ),
         }
-        return templates.TemplateResponse("dashboard.html", context)
+        return render_template(request, "dashboard.html", context)
 
     @app.get("/ping")
     async def ping_config_page(request: Request):
@@ -353,7 +360,7 @@ def create_app() -> FastAPI:
                 (datetime.now().astimezone() - timedelta(days=settings.retention_days)).isoformat()
             ),
         }
-        return templates.TemplateResponse("dashboard.html", context)
+        return render_template(request, "dashboard.html", context)
 
     @app.get("/mtr")
     async def mtr_config_page(request: Request):
@@ -382,7 +389,7 @@ def create_app() -> FastAPI:
                 (datetime.now().astimezone() - timedelta(days=settings.retention_days)).isoformat()
             ),
         }
-        return templates.TemplateResponse("dashboard.html", context)
+        return render_template(request, "dashboard.html", context)
 
     @app.get("/monitors")
     async def monitors_page(request: Request):
@@ -438,7 +445,7 @@ def create_app() -> FastAPI:
                 (datetime.now().astimezone() - timedelta(days=settings.retention_days)).isoformat()
             ),
         }
-        return templates.TemplateResponse("dashboard.html", context)
+        return render_template(request, "dashboard.html", context)
 
     @app.get("/dashboard")
     async def dashboard_page(request: Request):
@@ -525,7 +532,7 @@ def create_app() -> FastAPI:
                 (datetime.now().astimezone() - timedelta(days=settings.retention_days)).isoformat()
             ),
         }
-        return templates.TemplateResponse("dashboard.html", context)
+        return render_template(request, "dashboard.html", context)
 
     @app.get("/monitor/speedtest")
     async def speedtest_detail_page(request: Request):
@@ -581,7 +588,7 @@ def create_app() -> FastAPI:
                 (datetime.now().astimezone() - timedelta(days=settings.retention_days)).isoformat()
             ),
         }
-        return templates.TemplateResponse("dashboard.html", context)
+        return render_template(request, "dashboard.html", context)
 
     @app.get("/monitor/ping/{target_id}")
     async def ping_detail_page(request: Request, target_id: int):
@@ -626,7 +633,7 @@ def create_app() -> FastAPI:
                 (datetime.now().astimezone() - timedelta(days=settings.retention_days)).isoformat()
             ),
         }
-        return templates.TemplateResponse("dashboard.html", context)
+        return render_template(request, "dashboard.html", context)
 
     @app.get("/monitor/mtr/{target_id}")
     async def mtr_detail_page(request: Request, target_id: int):
@@ -669,7 +676,7 @@ def create_app() -> FastAPI:
                 (datetime.now().astimezone() - timedelta(days=settings.retention_days)).isoformat()
             ),
         }
-        return templates.TemplateResponse("dashboard.html", context)
+        return render_template(request, "dashboard.html", context)
 
     @app.post("/monitor/speedtest/pin")
     async def toggle_speedtest_pin():
@@ -749,7 +756,7 @@ def create_app() -> FastAPI:
                 (datetime.now().astimezone() - timedelta(days=settings.retention_days)).isoformat()
             ),
         }
-        return templates.TemplateResponse("dashboard.html", context)
+        return render_template(request, "dashboard.html", context)
 
     @app.post("/settings")
     async def update_settings(
