@@ -1,0 +1,1 @@
+"""Speedtest monitor application package."""

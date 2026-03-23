@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Speedtest Monitor</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="backdrop"></div>
+  <nav class="navbar">
+    <div class="navbar-container">
+      <div class="navbar-brand">
+        <h1>Speedtest Monitor</h1>
+      </div>
+      <ul class="navbar-menu">
+        <li><a href="/dashboard" class="nav-link {% if page == 'dashboard' %}active{% endif %}">Dashboard</a></li>
+        <li><a href="/speedtest" class="nav-link {% if page == 'speedtest_config' or page == 'monitor_speedtest' %}active{% endif %}">Speedtest</a></li>
+        <li><a href="/ping" class="nav-link {% if page == 'ping_config' or page == 'monitor_ping' %}active{% endif %}">Ping Tests</a></li>
+        <li><a href="/mtr" class="nav-link {% if page == 'mtr_config' or page == 'monitor_mtr' %}active{% endif %}">MTR Tests</a></li>
+        <li><a href="/monitors" class="nav-link {% if page == 'monitors' %}active{% endif %}">All Monitors</a></li>
+        <li><a href="/settings" class="nav-link {% if page == 'settings' %}active{% endif %}">Settings</a></li>
+      </ul>
+    </div>
+  </nav>
+  <main class="shell" data-dashboard-shell>
+    <section class="hero panel">
+      <div>
+        <p class="eyebrow">Network observability</p>
+        {% if page == 'dashboard' %}
+          <h2>Dashboard</h2>
+          <p class="lede">Pinned tests for quick monitoring and analysis.</p>
+        {% elif page == 'speedtest_config' %}
+          <h2>Speedtest Configuration</h2>
+          <p class="lede">Configure speedtest scheduling, servers, and timeouts.</p>
+        {% elif page == 'monitor_speedtest' %}
+          <h2>Speedtest Results</h2>
+          <p class="lede">Detailed speedtest history and performance metrics.</p>
+        {% elif page == 'ping_config' %}
+          <h2>Ping Tests Configuration</h2>
+          <p class="lede">Add and manage ping targets for continuous latency monitoring.</p>
+        {% elif page == 'monitor_ping' %}
+          <h2>{{ monitor_name }}</h2>
+          <p class="lede">Detailed ping test results with latency and jitter analysis.</p>
+        {% elif page == 'mtr_config' %}
+          <h2>MTR Tests Configuration</h2>
+          <p class="lede">Add and manage MTR targets for hop-by-hop path analysis.</p>
+        {% elif page == 'monitor_mtr' %}
+          <h2>{{ monitor_name }}</h2>
+          <p class="lede">Detailed path analysis with hop-by-hop latency and loss.</p>
+        {% elif page == 'settings' %}
+          <h2>Settings</h2>
+          <p class="lede">Configure retention, monitoring intervals, and data collection parameters.</p>
+        {% elif page == 'monitors' %}
+          <h2>All Monitors</h2>
+          <p class="lede">Overview of all currently running tests with quick access.</p>
+        {% endif %}
+      </div>
+      <div class="hero-actions">
+        {% if page == 'monitor_speedtest' %}
+          <form action="/speedtest/run" method="post">
+            <button type="submit">Run Now</button>
+          </form>
+          <form action="/monitor/speedtest/pin" method="post">
+            <button type="submit" class="ghost">{% if is_pinned %}Unpin from Dashboard{% else %}Pin to Dashboard{% endif %}</button>
+          </form>
+        {% elif page == 'monitor_ping' and monitor_id %}
+          <form action="/ping-targets/{{ monitor_id }}/run" method="post">
+            <button type="submit">Run Now</button>
+          </form>
+          <form action="/monitor/ping/{{ monitor_id }}/pin" method="post">
+            <button type="submit" class="ghost">{% if is_pinned %}Unpin from Dashboard{% else %}Pin to Dashboard{% endif %}</button>
+          </form>
+        {% elif page == 'monitor_mtr' and monitor_id %}
+          <form action="/mtr-targets/{{ monitor_id }}/run" method="post">
+            <button type="submit">Run Now</button>
+          </form>
+          <form action="/monitor/mtr/{{ monitor_id }}/pin" method="post">
+            <button type="submit" class="ghost">{% if is_pinned %}Unpin from Dashboard{% else %}Pin to Dashboard{% endif %}</button>
+          </form>
+        {% endif %}
+        {% if page not in ['settings', 'monitors'] and page != 'speedtest_config' and page != 'ping_config' and page != 'mtr_config' %}
+          <form class="range-form" action="" method="get" id="rangeForm">
+            <label>
+              <span>Graph range</span>
+              <select name="range" id="rangeSelect" onchange="handleRangeChange(this.value);">
+                {% for option in range_options %}
+                  <option value="{{ option.key }}" {% if option.key == range_key %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+                <option value="custom" {% if range_key == 'custom' %}selected{% endif %}>Custom range</option>
+              </select>
+            </label>
+          </form>
+          
+          {% if earliest_speedtest_date %}
+          <div id="customRangeDiv" class="range-form" style="display: none;">
+            <label>
+              <span>From (date)</span>
+              <input type="date" id="customFromDate" min="{{ earliest_speedtest_date[:10] }}" max="{{ today_date }}">
+            </label>
+            <label>
+              <span>From (time)</span>
+              <input type="time" id="customFromTime" value="00:00">
+            </label>
+            <label>
+              <span>To (date)</span>
+              <input type="date" id="customToDate" min="{{ earliest_speedtest_date[:10] }}" max="{{ today_date }}">
+            </label>
+            <label>
+              <span>To (time)</span>
+              <input type="time" id="customToTime" value="23:59">
+            </label>
+            <button type="button" onclick="applyCustomRange()">Apply</button>
+          </div>
+          {% endif %}
+        {% endif %}
+        <div class="meta">
+          <span>Retention cutoff: {{ retention_cutoff }}</span>
+          {% if page not in ['settings', 'monitors', 'speedtest_config', 'ping_config', 'mtr_config'] and range_label %}
+            <span>Showing: {{ range_label }}</span>
+          {% endif %}
+          <span>Realtime refresh: 10s</span>
+          <span>Manual tests: {{ settings.manual_tests_run }} • Auto tests: {{ settings.automatic_tests_run }}</span>
+        </div>
+      </div>
+    </section>
+
+    {% if page == 'monitor_speedtest' or page == 'dashboard' %}
+    <section class="overview-grid">
+      <article class="panel stat">
+        <p class="stat-label">Download</p>
+        <p class="stat-value" id="overview-download">{{ speedtest_live.download_text }} <span>Mbit/s</span></p>
+        <p class="stat-meta">Latest speedtest result</p>
+      </article>
+      <article class="panel stat">
+        <p class="stat-label">Upload</p>
+        <p class="stat-value" id="overview-upload">{{ speedtest_live.upload_text }} <span>Mbit/s</span></p>
+        <p class="stat-meta">Current upstream throughput</p>
+      </article>
+      <article class="panel stat">
+        <p class="stat-label">Latency</p>
+        <p class="stat-value" id="overview-latency">{{ speedtest_live.latency_text }} <span>ms</span></p>
+        <p class="stat-meta">Latest speedtest server RTT</p>
+      </article>
+    </section>
+    {% endif %}
+
+    {% if page == 'speedtest_config' %}
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Configuration</p>
+          <h2>Speedtest settings</h2>
+        </div>
+      </div>
+      <form class="form-grid" action="/speedtest/configure" method="post">
+        <label class="field">
+          <span>Run every (minutes)</span>
+          <input type="number" name="speedtest_interval_minutes" min="1" value="{{ settings.speedtest_interval_minutes }}" required>
+          <small class="field-help">How often to run automated speedtests.</small>
+        </label>
+        <label class="field">
+          <span>Timeout (seconds)</span>
+          <input type="number" name="speedtest_timeout_seconds" min="30" value="{{ settings.speedtest_timeout_seconds }}" required>
+          <small class="field-help">Maximum time allowed for one speedtest run.</small>
+        </label>
+        <label class="field">
+          <span>Start delay (24-hour)</span>
+          <select name="speedtest_start_delay_hours">
+            <option value="0" {% if settings.speedtest_start_delay_hours == 0 %}selected{% endif %}>Immediate</option>
+            {% for hour in range(1, 24) %}
+              <option value="{{ hour }}" {% if settings.speedtest_start_delay_hours == hour %}selected{% endif %}>+{{ hour }} hour{% if hour > 1 %}s{% endif %}</option>
+            {% endfor %}
+          </select>
+          <small class="field-help">Delay before the first test runs. Subsequent tests follow the interval.</small>
+        </label>
+        <label class="check field field-check wide">
+          <input type="checkbox" name="speedtest_enabled" {% if settings.speedtest_enabled %}checked{% endif %}>
+          <span>Enable scheduled speedtests</span>
+          <small class="field-help">Turn off to disable automated testing. Manual "Run Speedtest Now" still works.</small>
+        </label>
+        <button type="submit">Save Speedtest Configuration</button>
+      </form>
+      <div class="button-group" style="margin-top: 20px;">
+        <button type="button" class="ghost" onclick="runSpeedtestWithPopup()">Run Speedtest Now</button>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if page == 'monitor_speedtest' or page == 'dashboard' %}
+    <section class="panel chart-panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Speedtests</p>
+          <h2>Throughput history</h2>
+        </div>
+        <div class="submeta">
+          <span id="speedtest-server">{{ speedtest_live.server_text }}</span>
+          <span id="speedtest-location">{{ speedtest_live.location_text }}</span>
+          <span id="speedtest-last">{{ speedtest_live.last_text }}</span>
+        </div>
+        {% if page == 'monitor_speedtest' %}
+        <div class="monitor-actions" style="margin-top: 12px;">
+          <form action="/speedtest/configure" method="get" style="display: inline;">
+            <button type="submit" class="ghost">Edit Configuration</button>
+          </form>
+          <form action="/speedtest/configure" method="post" style="display: inline; margin-left: 8px;" onsubmit="return confirm('Disable speedtest?');">
+            <input type="hidden" name="speedtest_enabled" value="off">
+            <input type="hidden" name="speedtest_interval_minutes" value="{{ settings.speedtest_interval_minutes }}">
+            <input type="hidden" name="speedtest_timeout_seconds" value="{{ settings.speedtest_timeout_seconds }}">
+            <input type="hidden" name="speedtest_start_delay_hours" value="{{ settings.speedtest_start_delay_hours }}">
+            <button type="submit" class="ghost danger">Disable Speedtest</button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+      <div
+        id="speedtest-chart"
+        class="trend-card"
+        data-chart
+        data-chart-payload='{{ speedtest_history_json|safe }}'>
+      </div>
+      <p class="chart-footnote">
+        X axis: time in the selected range. Y axis: throughput in Mbit/s. Hover any point to inspect exact values.
+      </p>
+      <pre id="speedtest-error" class="error-box {% if not speedtest_live.error %}hidden{% endif %}">{{ speedtest_live.error or '' }}</pre>
+    </section>
+    {% endif %}
+
+    {% if page == 'dashboard' and ping_targets %}
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Pinned Ping Tests</p>
+        </div>
+      </div>
+      <div class="dashboard-cards">
+        {% for item in ping_targets %}
+          <article class="dashboard-card" data-dashboard-ping-card="{{ item.target.id }}">
+            <div class="card-header">
+              <h3>{{ item.target.name }}</h3>
+              <div class="badge {{ 'online' if item.target.active else 'idle' }}">
+                {{ 'Active' if item.target.active else 'Paused' }}
+              </div>
+            </div>
+            <p class="card-host">{{ item.target.host }}</p>
+            <div class="card-stats">
+              <span>Avg: <strong>{{ item.live.latest.avg_text }}</strong> ms</span>
+              <span>Jitter: <strong>{{ item.live.latest.jitter_text }}</strong> ms</span>
+              <span>Loss: <strong>{{ item.live.latest.loss_text }}</strong></span>
+            </div>
+            <div
+              class="card-chart"
+              data-chart
+              data-dashboard-ping-chart
+              data-chart-payload='{{ item.live.chart|tojson }}'></div>
+            <div class="card-actions">
+              <a href="/monitor/ping/{{ item.target.id }}">View Details</a>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if page == 'dashboard' and mtr_targets %}
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Pinned MTR Tests</p>
+        </div>
+      </div>
+      <div class="dashboard-cards">
+        {% for item in mtr_targets %}
+          <article class="dashboard-card">
+            <div class="card-header">
+              <h3>{{ item.target.name }}</h3>
+              <div class="badge {{ 'online' if item.target.active else 'idle' }}">
+                {{ 'Active' if item.target.active else 'Paused' }}
+              </div>
+            </div>
+            <p class="card-host">{{ item.target.host }}</p>
+            <div class="card-stats">
+              <span>Hops: <strong>{{ item.live.hops_text }}</strong></span>
+            </div>
+            <div class="card-actions">
+              <a href="/monitor/mtr/{{ item.target.id }}">View Details</a>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if page == 'ping_config' %}
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Configuration</p>
+          <h2>Add Ping Target</h2>
+        </div>
+      </div>
+      <form class="form-grid" action="/ping-targets" method="post">
+        <input type="hidden" name="redirect_to" value="/ping">
+        <label class="field">
+          <span>Display name</span>
+          <input type="text" name="name" placeholder="Cloudflare DNS" required>
+          <small class="field-help">Friendly label shown on the dashboard card.</small>
+        </label>
+        <label class="field">
+          <span>Host or IP</span>
+          <input type="text" name="host" placeholder="1.1.1.1" required>
+          <small class="field-help">Destination to ping, for example a DNS name or IP address.</small>
+        </label>
+        <label class="field">
+          <span>Run every (seconds)</span>
+          <input type="number" name="interval_seconds" min="5" value="30" required>
+          <small class="field-help">How often to start a new ping batch for this target.</small>
+        </label>
+        <label class="field">
+          <span>Samples per run</span>
+          <input type="number" name="probe_count" min="1" value="5" required>
+          <small class="field-help">How many ping packets to send in each batch.</small>
+        </label>
+        <label class="field">
+          <span>Per-packet timeout (seconds)</span>
+          <input type="number" name="timeout_seconds" min="1" step="1" value="1" required>
+          <small class="field-help">Maximum wait for a reply before counting that packet as lost.</small>
+        </label>
+        <label class="check field field-check">
+          <input type="checkbox" name="active" checked>
+          <span>Start active</span>
+          <small class="field-help">Begin collecting data immediately after saving this target.</small>
+        </label>
+        <button type="submit">Add Ping Target</button>
+      </form>
+    </section>
+
+    {% if ping_targets %}
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Existing targets</p>
+          <h2>Ping targets</h2>
+        </div>
+      </div>
+      <div class="targets-list">
+        {% for item in ping_targets %}
+          <a href="/monitor/ping/{{ item.target.id }}" class="target-link">
+            <div class="target-item">
+              <div class="target-head">
+                <h3>{{ item.target.name }}</h3>
+                <div class="badge {{ 'online' if item.target.active else 'idle' }}">
+                  {{ 'Active' if item.target.active else 'Paused' }}
+                </div>
+              </div>
+              <p class="target-host">{{ item.target.host }}</p>
+              <p class="target-meta">Avg: {{ item.latest.avg_ms or 'n/a' }} ms • Loss: {{ item.latest.loss_percent or 0 }}%</p>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+    {% endif %}
+
+    {% if page == 'monitor_ping' and ping_targets %}
+    <section class="panel chart-panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Ping Test</p>
+          <h2>{{ ping_targets.0.target.name }}</h2>
+        </div>
+        <div class="submeta">
+          <span>{{ ping_targets.0.target.host }}</span>
+          <span>Avg: {{ ping_targets.0.live.latest.avg_text }} ms</span>
+          <span>Jitter: {{ ping_targets.0.live.latest.jitter_text }} ms</span>
+          <span>Loss: {{ ping_targets.0.live.latest.loss_text }}</span>
+        </div>
+      </div>
+      <div
+        id="ping-chart"
+        class="trend-card"
+        data-chart
+        data-chart-payload='{{ ping_targets.0.live.chart|tojson }}'>
+      </div>
+      <p class="chart-footnote">
+        X axis: time in the selected range. Y axis: latency and jitter in ms.
+      </p>
+      <pre class="error-box {% if not ping_targets.0.live.latest.error %}hidden{% endif %}">{{ ping_targets.0.live.latest.error or '' }}</pre>
+      <div class="monitor-actions">
+        <form action="/ping-targets/{{ ping_targets.0.target.id }}/run" method="post">
+          <button type="submit">Run Now</button>
+        </form>
+        <form action="/ping-targets/{{ ping_targets.0.target.id }}/toggle" method="post">
+          <button type="submit">{{ 'Pause' if ping_targets.0.target.active else 'Resume' }}</button>
+        </form>
+        <form action="/ping-targets/{{ ping_targets.0.target.id }}/delete" method="post" onsubmit="return confirm('Delete this target?')">
+          <button class="ghost danger" type="submit">Delete</button>
+        </form>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if page == 'mtr_config' %}
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Configuration</p>
+            <h2>Add MTR Target</h2>
+          </div>
+        </div>
+        <p class="section-note">
+          Hop = a router on the path to the destination. Loss = percentage of probes that did not answer at that hop.
+          Avg = average round-trip time to that hop. Jitter = how much those times vary between probes.
+        </p>
+        <form class="form-grid" action="/mtr-targets" method="post">
+          <input type="hidden" name="redirect_to" value="/mtr">
+          <label class="field">
+            <span>Display name</span>
+            <input type="text" name="name" placeholder="Google Public DNS" required>
+            <small class="field-help">Friendly label shown on the dashboard card.</small>
+          </label>
+          <label class="field">
+            <span>Host or IP</span>
+            <input type="text" name="host" placeholder="8.8.8.8" required>
+            <small class="field-help">Destination whose path you want to trace.</small>
+          </label>
+          <label class="field">
+            <span>Run every (seconds)</span>
+            <input type="number" name="interval_seconds" min="10" value="300" required>
+            <small class="field-help">How often to start a new MTR-style path measurement.</small>
+          </label>
+          <label class="field">
+            <span>Probes per hop</span>
+            <input type="number" name="probe_count" min="1" value="3" required>
+            <small class="field-help">How many probes to send to each hop before calculating loss and timing.</small>
+          </label>
+          <label class="field">
+            <span>Per-probe timeout (seconds)</span>
+            <input type="number" name="timeout_seconds" min="1" step="1" value="1" required>
+            <small class="field-help">Maximum wait for each hop response before it is counted as missing.</small>
+          </label>
+          <label class="field">
+            <span>Maximum hops</span>
+            <input type="number" name="max_hops" min="1" value="12" required>
+            <small class="field-help">Stop tracing after this many routers if the target has not been reached yet.</small>
+          </label>
+          <label class="check field field-check">
+            <input type="checkbox" name="active" checked>
+            <span>Start active</span>
+            <small class="field-help">Begin collecting route data immediately after saving this target.</small>
+          </label>
+          <button type="submit">Add MTR Target</button>
+        </form>
+      </section>
+
+      {% if mtr_targets %}
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Existing targets</p>
+            <h2>MTR targets</h2>
+          </div>
+        </div>
+        <div class="targets-list">
+          {% for item in mtr_targets %}
+            <a href="/monitor/mtr/{{ item.target.id }}" class="target-link">
+              <div class="target-item">
+                <div class="target-head">
+                  <h3>{{ item.target.name }}</h3>
+                  <div class="badge {{ 'online' if item.target.active else 'idle' }}">
+                    {{ 'Active' if item.target.active else 'Paused' }}
+                  </div>
+                </div>
+                <p class="target-host">{{ item.target.host }}</p>
+                <p class="target-meta">Hops: {{ item.live.hops_text }}</p>
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    {% endif %}
+
+    {% if page == 'monitor_mtr' and mtr_targets %}
+    <section class="panel chart-panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Path Analysis</p>
+          <h2>{{ mtr_targets.0.target.name }}</h2>
+        </div>
+        <div class="submeta">
+          <span>{{ mtr_targets.0.target.host }}</span>
+          <span>Hops: {{ mtr_targets.0.live.hops_text }}</span>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Hop</th>
+              <th>Address</th>
+              <th>Loss</th>
+              <th>Avg</th>
+              <th>Jitter</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for hop in mtr_targets.0.live.hops %}
+              <tr>
+                <td>{{ hop.hop_index }}</td>
+                <td>{{ hop.address }}</td>
+                <td>{{ hop.loss_text }}</td>
+                <td>{{ hop.avg_text }} ms</td>
+                <td>{{ hop.jitter_text }} ms</td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="5">No MTR data yet.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <pre class="error-box {% if not mtr_targets.0.live.error %}hidden{% endif %}">{{ mtr_targets.0.live.error or '' }}</pre>
+      <div class="monitor-actions">
+        <form action="/mtr-targets/{{ mtr_targets.0.target.id }}/run" method="post">
+          <button type="submit">Run Now</button>
+        </form>
+        <form action="/mtr-targets/{{ mtr_targets.0.target.id }}/toggle" method="post">
+          <button type="submit">{{ 'Pause' if mtr_targets.0.target.active else 'Resume' }}</button>
+        </form>
+        <form action="/mtr-targets/{{ mtr_targets.0.target.id }}/delete" method="post" onsubmit="return confirm('Delete this target?')">
+          <button class="ghost danger" type="submit">Delete</button>
+        </form>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if page == 'settings' %}
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Settings</p>
+          <h2>Retention and logging</h2>
+        </div>
+      </div>
+      <form class="settings-grid" action="/settings" method="post">
+        <label class="field">
+          <span>Retention days</span>
+          <input type="number" name="retention_days" min="1" value="{{ settings.retention_days }}" required>
+          <small class="field-help">Delete measurements older than this many days from the database.</small>
+        </label>
+        <label class="field">
+          <span>Cleanup interval (hours)</span>
+          <input type="number" name="cleanup_interval_hours" min="1" value="{{ settings.cleanup_interval_hours }}" required>
+          <small class="field-help">How often to run the retention cleanup job.</small>
+        </label>
+        <label class="field">
+          <span>Default graph range</span>
+          <select name="dashboard_range_key">
+            {% for option in range_options %}
+              <option value="{{ option.key }}" {% if option.key == settings.dashboard_range_key %}selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+          <small class="field-help">The graph range to use when the page opens without a selected range.</small>
+        </label>
+        <label class="field">
+          <span>Log rotate size (MB)</span>
+          <input type="number" name="log_max_mb" min="1" value="{{ settings.log_max_mb }}" required>
+          <small class="field-help">Maximum size of the app log before a new file is rotated in.</small>
+        </label>
+        <label class="field">
+          <span>Log backups</span>
+          <input type="number" name="log_backup_count" min="1" value="{{ settings.log_backup_count }}" required>
+          <small class="field-help">How many rotated log files to keep on disk.</small>
+        </label>
+
+        <button type="submit">Save Settings</button>
+      </form>
+    </section>
+    {% endif %}
+
+    {% if page == 'monitors' %}
+    <section class="panel monitors-panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Active monitors</p>
+          <h2>All running tests</h2>
+        </div>
+      </div>
+      
+      <div class="monitors-overview">
+        {% if active_speedtest_count > 0 %}
+        <a href="/monitor/speedtest" class="monitor-type-card monitor-link">
+          <div class="monitor-type-header">
+            <h3>Speedtest</h3>
+            <span class="badge">1 active</span>
+          </div>
+          <div class="monitor-type-details">
+            <p><strong>Interval:</strong> Every {{ settings.speedtest_interval_minutes }} minutes</p>
+            <p><strong>Server:</strong> {% if settings.speedtest_server_id %}{{ settings.speedtest_server_id }}{% else %}Auto-selected{% endif %}</p>
+            <p><strong>Timeout:</strong> {{ settings.speedtest_timeout_seconds }} seconds</p>
+            {% if settings.speedtest_start_delay_hours > 0 %}
+              <p><strong>Start delay:</strong> +{{ settings.speedtest_start_delay_hours }} hour{% if settings.speedtest_start_delay_hours > 1 %}s{% endif %}</p>
+            {% endif %}
+          </div>
+        </a>
+        {% endif %}
+
+        {% if active_ping_count > 0 %}
+        <div class="monitor-type-card">
+          <div class="monitor-type-header">
+            <h3>Ping Tests</h3>
+            <span class="badge">{{ active_ping_count }} active</span>
+          </div>
+          <div class="monitor-type-details">
+            {% for item in ping_targets %}
+              {% if item.target.active %}
+              <div class="monitor-test-item">
+                <a href="/monitor/ping/{{ item.target.id }}" class="monitor-test-link"><strong>{{ item.target.name }}</strong> — {{ item.target.host }}</a>
+                <form action="/ping-targets/{{ item.target.id }}/delete" method="post" style="display: inline;" onsubmit="return confirm('Delete this target?');">
+                  <input type="hidden" name="redirect_to" value="/monitors">
+                  <button type="submit" class="ghost danger small">Delete</button>
+                </form>
+              </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if active_mtr_count > 0 %}
+        <div class="monitor-type-card">
+          <div class="monitor-type-header">
+            <h3>MTR Tests</h3>
+            <span class="badge">{{ active_mtr_count }} active</span>
+          </div>
+          <div class="monitor-type-details">
+            {% for item in mtr_targets %}
+              {% if item.target.active %}
+              <div class="monitor-test-item">
+                <a href="/monitor/mtr/{{ item.target.id }}" class="monitor-test-link"><strong>{{ item.target.name }}</strong> — {{ item.target.host }}</a>
+                <form action="/mtr-targets/{{ item.target.id }}/delete" method="post" style="display: inline;" onsubmit="return confirm('Delete this target?');">
+                  <input type="hidden" name="redirect_to" value="/monitors">
+                  <button type="submit" class="ghost danger small">Delete</button>
+                </form>
+              </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if active_speedtest_count == 0 and active_ping_count == 0 and active_mtr_count == 0 %}
+        <p class="empty-state">No active monitors. Add monitors on the <a href="/speedtest">Speedtest</a>, <a href="/ping">Ping Tests</a>, or <a href="/mtr">MTR Tests</a> pages to get started.</p>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+  </main>
+
+  <!-- Speedtest Modal -->
+  <div id="speedtestModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <h3>Speedtest</h3>
+      <p id="speedtestStatus">Running...</p>
+      <button type="button" class="ghost" onclick="closeSpeedtestModal()" style="margin-top: 16px;">Close</button>
+    </div>
+  </div>
+
+  <script>
+    window.dashboardConfig = {
+      rangeKey: "{{ range_key }}",
+      refreshMs: 10000,
+      earliestDate: "{{ earliest_speedtest_date }}"
+    };
+
+    function handleRangeChange(value) {
+      const customDiv = document.getElementById('customRangeDiv');
+      if (value === 'custom') {
+        if (customDiv) customDiv.style.display = 'flex';
+      } else {
+        if (customDiv) customDiv.style.display = 'none';
+        const form = document.getElementById('rangeForm');
+        if (form) {
+          const url = new URL(window.location);
+          url.searchParams.set('range', value);
+          // Remove custom range parameters when selecting a predefined range
+          url.searchParams.delete('from');
+          url.searchParams.delete('to');
+          window.location = url.toString();
+        }
+      }
+    }
+
+    function applyCustomRange() {
+      const fromDate = document.getElementById('customFromDate').value;
+      const fromTime = document.getElementById('customFromTime').value;
+      const toDate = document.getElementById('customToDate').value;
+      const toTime = document.getElementById('customToTime').value;
+
+      if (!fromDate || !fromTime || !toDate || !toTime) {
+        alert('Please fill all date and time fields');
+        return;
+      }
+
+      const fromISO = `${fromDate}T${fromTime}:00Z`;
+      const toISO = `${toDate}T${toTime}:00Z`;
+
+      const url = new URL(window.location);
+      url.searchParams.set('from', fromISO);
+      url.searchParams.set('to', toISO);
+      window.location = url.toString();
+    }
+
+    function runSpeedtestWithPopup() {
+      const modal = document.getElementById('speedtestModal');
+      const statusEl = document.getElementById('speedtestStatus');
+      modal.style.display = 'flex';
+      statusEl.textContent = 'Running... This may take a few minutes.';
+      
+      fetch('/speedtest/run', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+          statusEl.innerHTML = '<strong>✓ Speedtest started</strong><br><br>The results will appear shortly on the dashboard.';
+        })
+        .catch(error => {
+          statusEl.innerHTML = '<strong>✗ Error starting speedtest</strong><br><br>' + (error.message || 'Unknown error');
+        });
+    }
+
+    function closeSpeedtestModal() {
+      document.getElementById('speedtestModal').style.display = 'none';
+    }
+
+    // Auto-refresh only pinned ping graphs on the dashboard
+    {% if page == 'dashboard' %}
+    // Helper function to build API URL with current range params
+    function buildDashboardApiUrl() {
+      const url = new URL('/api/dashboard-data', window.location.origin);
+      const params = new URLSearchParams(window.location.search);
+      const range = params.get('range');
+      const from = params.get('from');
+      const to = params.get('to');
+      
+      if (range) url.searchParams.set('range', range);
+      if (from) url.searchParams.set('from', from);
+      if (to) url.searchParams.set('to', to);
+      
+      return url.toString();
+    }
+
+    // Refresh only the pinned ping graphs every 5 seconds.
+    setInterval(() => {
+      fetch(buildDashboardApiUrl())
+        .then(response => response.json())
+        .then(data => {
+          if (data.ping && Object.keys(data.ping).length > 0) {
+            const pingTargets = Object.values(data.ping).map(item => item.live);
+            updateDashboardPinnedPingCharts(pingTargets);
+          }
+        })
+        .catch(error => console.error('Pinned ping graph refresh error:', error));
+    }, 5000);
+    {% endif %}
+
+    // Auto-refresh monitor detail pages
+    {% if page == 'monitor_ping' and monitor_id %}
+    setInterval(() => {
+      const url = new URL('/api/monitor/ping/{{ monitor_id }}', window.location.origin);
+      const params = new URLSearchParams(window.location.search);
+      const range = params.get('range');
+      const from = params.get('from');
+      const to = params.get('to');
+      
+      if (range) url.searchParams.set('range', range);
+      if (from) url.searchParams.set('from', from);
+      if (to) url.searchParams.set('to', to);
+      
+      fetch(url.toString())
+        .then(response => response.json())
+        .then(data => {
+          if (data.live) {
+            // Update ping chart
+            const chart = document.querySelector('#ping-chart[data-chart]');
+            if (chart) {
+              chart.dataset.chartPayload = JSON.stringify(data.live.chart);
+              renderChart(chart, data.live.chart);
+            }
+            // Update stats
+            const section = document.querySelector('[data-chart-payload]')?.closest('section');
+            if (section) {
+              const submeta = section.querySelector('.submeta');
+              if (submeta) {
+                submeta.innerHTML = `
+                  <span>{{ ping_targets.0.target.host }}</span>
+                  <span>Avg: ${data.live.latest.avg_text} ms</span>
+                  <span>Jitter: ${data.live.latest.jitter_text} ms</span>
+                  <span>Loss: ${data.live.latest.loss_text}</span>
+                `;
+              }
+            }
+          }
+        })
+        .catch(error => console.error('Ping monitor refresh error:', error));
+    }, 4000); // Update every 4 seconds
+    {% endif %}
+
+    {% if page == 'monitor_speedtest' %}
+    let lastSpeedtestMonitorTimestamp = null;
+
+    setInterval(() => {
+      const url = new URL('/api/monitor/speedtest', window.location.origin);
+      const params = new URLSearchParams(window.location.search);
+      const range = params.get('range');
+      const from = params.get('from');
+      const to = params.get('to');
+      
+      if (range) url.searchParams.set('range', range);
+      if (from) url.searchParams.set('from', from);
+      if (to) url.searchParams.set('to', to);
+      
+      fetch(url.toString())
+        .then(response => response.json())
+        .then(data => {
+          // Only update if new data arrived
+          if (data) {
+            const currentTimestamp = data.last_text;
+            if (currentTimestamp !== lastSpeedtestMonitorTimestamp) {
+              lastSpeedtestMonitorTimestamp = currentTimestamp;
+              updateSpeedtest(data);
+            }
+          }
+        })
+        .catch(error => console.error('Speedtest monitor refresh error:', error));
+    }, 10000); // Check every 10 seconds
+    {% endif %}
+
+    {% if page == 'monitor_mtr' and monitor_id %}
+    setInterval(() => {
+      const url = new URL('/api/monitor/mtr/{{ monitor_id }}', window.location.origin);
+      fetch(url.toString())
+        .then(response => response.json())
+        .then(data => {
+          if (data.live) {
+            // Update submeta
+            const section = document.querySelector('h2');
+            if (section) {
+              const submeta = section.closest('section')?.querySelector('.submeta');
+              if (submeta && data.live.hops) {
+                submeta.innerHTML = `
+                  <span>{{ mtr_targets.0.target.host }}</span>
+                  <span>Hops: ${data.live.hops_text}</span>
+                `;
+              }
+            }
+            // Update table
+            const tbody = document.querySelector('.table-wrap tbody');
+            if (tbody) {
+              tbody.innerHTML = data.live.hops && data.live.hops.length > 0
+                ? data.live.hops.map(hop => `
+                    <tr>
+                      <td>${hop.hop_index}</td>
+                      <td>${hop.address}</td>
+                      <td>${hop.loss_text}</td>
+                      <td>${hop.avg_text} ms</td>
+                      <td>${hop.jitter_text} ms</td>
+                    </tr>
+                  `).join('')
+                : '<tr><td colspan="5">No MTR data yet.</td></tr>';
+            }
+          }
+        })
+        .catch(error => console.error('MTR monitor refresh error:', error));
+    }, 4000); // Update every 4 seconds
+    {% endif %}
+  </script>
+  <script src="/static/main.js"></script>
+</body>
+</html>
