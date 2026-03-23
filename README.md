@@ -26,7 +26,8 @@ Local network monitoring app with a web interface for:
 ## Run
 
 ```bash
-cd /home/nick/speedtest
+cd /home/user/speedtest
+apt install python3.13-venv
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
@@ -46,21 +47,30 @@ Then open [http://localhost:8000](http://localhost:8000).
 Reset stored measurement data, counters, pins, and runtime logs:
 
 ```bash
-cd /home/nick/speedtest
+cd /home/user/speedtest
 .venv/bin/python scripts/reset_runtime_state.py
 ```
 
 ## Autostart
 
-Install and enable the user-level `systemd` service:
+Install and enable the user-level `systemd` service from a normal logged-in user session:
 
 ```bash
-cd /home/nick/speedtest
+cd /home/user/speedtest
 ./scripts/install_user_service.sh
+```
+
+If you are on a headless server or running as `root`, install a system-wide service instead:
+
+```bash
+cd /home/user/speedtest
+./scripts/install_system_service.sh
 ```
 
 Check service status:
 
 ```bash
 systemctl --user status speedtest-monitor.service
+# or, for the system-wide service:
+systemctl status speedtest-monitor.service
 ```

@@ -5,8 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/speedtest
-ExecStart=%h/speedtest/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+# Example only. The install scripts generate a path-specific unit automatically.
+# Use scripts/install_user_service.sh or scripts/install_system_service.sh
+# instead of copying this file as-is.
+WorkingDirectory=/path/to/speedtest
+ExecStart=/path/to/speedtest/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
