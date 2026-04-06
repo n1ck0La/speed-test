@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import platform
 import re
 import shutil
 import subprocess
@@ -14,14 +15,15 @@ from pathlib import Path
 
 PING_SAMPLE_RE = re.compile(r"time=([\d.]+)\s*ms")
 PING_STATS_RE = re.compile(
-    r"(?P<sent>\d+)\s+packets transmitted,\s+"
+    r"(?:(?P<sent>\d+)\s+packets transmitted,\s+"
     r"(?P<received>\d+)\s+(?:packets )?received.*?"
-    r"(?P<loss>[\d.]+)%\s+packet loss",
-    re.DOTALL,
+    r"(?P<loss>[\d.]+)%\s+packet loss)|"
+    r"(?:Packets:\s+Sent\s+=\s+(?P<sent_win>\d+),\s+Received\s+=\s+(?P<received_win>\d+),\s+Lost\s+=\s+(?P<lost_win>\d+))",
+    re.DOTALL | re.IGNORECASE,
 )
-REPLY_RE = re.compile(r"bytes from ([^:\s]+)")
-TTL_RE = re.compile(r"From ([^ ]+) icmp_seq=\d+ Time to live exceeded", re.IGNORECASE)
-UNREACHABLE_RE = re.compile(r"From ([^ ]+) icmp_seq=\d+ .*Unreachable", re.IGNORECASE)
+REPLY_RE = re.compile(r"(?:bytes from ([^:\s]+))|(?:Reply from ([^:\s]+))")
+TTL_RE = re.compile(r"(?:From ([^ ]+) icmp_seq=\d+ Time to live exceeded)|(?:Reply from ([^:\s]+): TTL expired in transit)", re.IGNORECASE)
+UNREACHABLE_RE = re.compile(r"(?:From ([^ ]+) icmp_seq=\d+ .*Unreachable)|(?:Reply from ([^:\s]+): Destination .* unreachable)", re.IGNORECASE)
 SERVER_LINE_RE = re.compile(
     r"^\s*(?P<id>\d+)\)\s+(?P<sponsor>.+?)\s+\((?P<city>.+?),\s+(?P<country>.+?)\)\s+\[(?P<distance>[^\]]+)\]$"
 )
@@ -175,18 +177,26 @@ def run_speedtest(server_id: str = "", timeout_seconds: int = 240) -> dict:
 
 
 def run_ping_check(host: str, probe_count: int, timeout_seconds: float) -> dict:
+    import platform
     timeout = max(1, int(math.ceil(timeout_seconds)))
-    command = [
-        _ping_binary(),
-        "-n",
-        "-c",
-        str(max(1, probe_count)),
-        "-i",
-        "0.2",
-        "-W",
-        str(timeout),
-        host,
-    ]
+    
+    if platform.system() == "Windows":
+        # Windows ping syntax
+        command = [
+            _ping_binary(),
+            "-n", str(max(1, probe_count)),  # count
+            "-w", str(timeout * 1000),       # timeout in milliseconds
+            host,
+        ]
+    else:
+        # Unix ping syntax
+        command = [
+            _ping_binary(),
+            "-c", str(max(1, probe_count)),  # count
+            "-i", "0.2",                     # interval
+            "-W", str(timeout),              # timeout in seconds
+            host,
+        ]
 
     try:
         completed = subprocess.run(
@@ -216,9 +226,15 @@ def run_ping_check(host: str, probe_count: int, timeout_seconds: float) -> dict:
     stats = PING_STATS_RE.search(output)
 
     if stats:
-        packets_sent = int(stats.group("sent"))
-        packets_received = int(stats.group("received"))
-        packet_loss = float(stats.group("loss"))
+        if stats.group("sent"):  # Unix format
+            packets_sent = int(stats.group("sent"))
+            packets_received = int(stats.group("received"))
+            packet_loss = float(stats.group("loss"))
+        else:  # Windows format
+            packets_sent = int(stats.group("sent_win"))
+            packets_received = int(stats.group("received_win"))
+            lost = int(stats.group("lost_win"))
+            packet_loss = round((lost / packets_sent) * 100, 2) if packets_sent > 0 else 100.0
     else:
         packets_sent = max(1, probe_count)
         packets_received = len(samples)
@@ -242,15 +258,21 @@ def run_ping_check(host: str, probe_count: int, timeout_seconds: float) -> dict:
 def _parse_probe_output(output: str) -> tuple[str | None, bool]:
     reply = REPLY_RE.search(output)
     if reply:
-        return reply.group(1), True
+        # REPLY_RE now has two groups: Unix format (group 1) and Windows format (group 2)
+        address = reply.group(1) or reply.group(2)
+        return address, True
 
     ttl = TTL_RE.search(output)
     if ttl:
-        return ttl.group(1), False
+        # TTL_RE now has two groups: Unix format (group 1) and Windows format (group 2)
+        address = ttl.group(1) or ttl.group(2)
+        return address, False
 
     unreachable = UNREACHABLE_RE.search(output)
     if unreachable:
-        return unreachable.group(1), False
+        # UNREACHABLE_RE now has two groups: Unix format (group 1) and Windows format (group 2)
+        address = unreachable.group(1) or unreachable.group(2)
+        return address, False
 
     return None, False
 
@@ -272,17 +294,24 @@ def run_mtr_check(
         hop_reached_target = False
 
         for probe_number in range(max(1, probe_count)):
-            command = [
-                _ping_binary(),
-                "-n",
-                "-c",
-                "1",
-                "-W",
-                str(timeout),
-                "-t",
-                str(ttl),
-                host,
-            ]
+            if platform.system() == "Windows":
+                # Windows ping syntax
+                command = [
+                    _ping_binary(),
+                    "-n", "1",                    # count
+                    "-w", str(timeout * 1000),   # timeout in milliseconds
+                    "-i", str(ttl),              # TTL
+                    host,
+                ]
+            else:
+                # Unix ping syntax
+                command = [
+                    _ping_binary(),
+                    "-c", "1",                   # count
+                    "-W", str(timeout),          # timeout in seconds
+                    "-t", str(ttl),              # TTL
+                    host,
+                ]
             started = time.perf_counter()
             completed = subprocess.run(
                 command,
