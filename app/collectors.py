@@ -101,12 +101,19 @@ def list_speedtest_servers(limit: int = 25, ttl_minutes: int = 60) -> list[dict]
     return servers
 
 
-def run_speedtest(server_id: str = "", timeout_seconds: int = 240) -> dict:
-    command = [_speedtest_binary(), "--secure", "--json"]
+def run_speedtest(
+    server_id: str = "",
+    timeout_seconds: int = 240,
+    use_secure: bool = False,
+) -> dict:
+    command = [_speedtest_binary(), "--json"]
+    if use_secure:
+        command.append("--secure")
     if server_id:
         command.extend(["--server", server_id])
     if timeout_seconds:
         command.extend(["--timeout", str(timeout_seconds)])
+    command.append("--no-pre-allocate")
 
     try:
         completed = subprocess.run(

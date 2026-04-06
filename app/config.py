@@ -23,6 +23,7 @@ class Settings:
     speedtest_server_id: str = ""
     speedtest_timeout_seconds: int = 240
     speedtest_start_delay_hours: int = 0
+    speedtest_use_secure: bool = False
     log_max_mb: int = 10
     log_backup_count: int = 5
     pinned_monitors: list[str] = None
@@ -48,6 +49,7 @@ class Settings:
         self.speedtest_interval_minutes = max(1, int(self.speedtest_interval_minutes))
         self.speedtest_timeout_seconds = max(30, int(self.speedtest_timeout_seconds))
         self.speedtest_start_delay_hours = max(0, min(23, int(self.speedtest_start_delay_hours)))
+        self.speedtest_use_secure = bool(self.speedtest_use_secure)
         self.log_max_mb = max(1, int(self.log_max_mb))
         self.log_backup_count = max(1, int(self.log_backup_count))
         self.speedtest_server_id = str(self.speedtest_server_id or "").strip()

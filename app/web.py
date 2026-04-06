@@ -798,6 +798,7 @@ def create_app() -> FastAPI:
         speedtest_interval_minutes: int = Form(...),
         speedtest_timeout_seconds: int = Form(...),
         speedtest_start_delay_hours: int = Form(default=0),
+        speedtest_use_secure: str | None = Form(default=None),
     ):
         # Load existing settings and preserve non-speedtest config and pinned monitors
         existing = settings_store.load()
@@ -810,6 +811,7 @@ def create_app() -> FastAPI:
             speedtest_server_id="",
             speedtest_timeout_seconds=speedtest_timeout_seconds,
             speedtest_start_delay_hours=speedtest_start_delay_hours,
+            speedtest_use_secure=speedtest_use_secure == "on",
             log_max_mb=existing.log_max_mb,
             log_backup_count=existing.log_backup_count,
             pinned_monitors=existing.pinned_monitors,

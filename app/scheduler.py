@@ -125,7 +125,11 @@ class MonitorScheduler:
     def collect_speedtest(self) -> None:
         settings = self.settings_store.load()
         self.logger.info("Running speedtest")
-        result = run_speedtest(settings.speedtest_server_id, settings.speedtest_timeout_seconds)
+        result = run_speedtest(
+            settings.speedtest_server_id,
+            settings.speedtest_timeout_seconds,
+            settings.speedtest_use_secure,
+        )
         self.db.record_speedtest(result)
         if result["success"]:
             self.logger.info(
